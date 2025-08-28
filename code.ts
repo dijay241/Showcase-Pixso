@@ -206,26 +206,27 @@ type ExportTextRun = {
           });
         }
         else if (node.type === "LINE") {
-          // Экспортируем как PPTX line (не растровое/не SVG)
+          // Экспорт как настоящая линия (ShapeType.line) через UI-рендер
           const stroke = firstSolidPaint((node as any).strokes) as SolidPaint | null;
-          if (stroke) {
+          if (stroke && hasSize(node)) {
             const strokeHex = rgbToHex(stroke.color, (stroke.opacity === undefined || stroke.opacity === null) ? 1 : stroke.opacity);
-            // Пользовательское правило: 1px в Figma = 0.01pt в PPTX
-            const strokePt = typeof (node as any).strokeWeight === 'number' ? Math.max(0.001, (node as any).strokeWeight * 0.01) : 0.01;
+            const strokePx = typeof (node as any).strokeWeight === 'number' ? (node as any).strokeWeight : 1;
+            // Геометрия линии: используем w/h как вектор направления, без rotate
+            const wInL = node.width / PX_PER_IN;
+            const hInL = node.height / PX_PER_IN;
+            // По требованию: 1px в Figma = 0.01pt в PPTX
+            const strokePt = Math.max(0.001, strokePx * 0.01);
             const capMap = (node as any).strokeCap === 'ROUND' ? 'round' : ( (node as any).strokeCap === 'SQUARE' ? 'square' : 'flat');
-            const dash = Array.isArray((node as any).dashPattern) && (node as any).dashPattern.length
-              ? 'dash' : 'solid';
+            const dash = Array.isArray((node as any).dashPattern) && (node as any).dashPattern.length ? 'dash' : 'solid';
             const beginArrow = (node as any).strokeStartArrow && (node as any).strokeStartArrow !== 'NONE';
             const endArrow = (node as any).strokeEndArrow && (node as any).strokeEndArrow !== 'NONE';
-            const lengthIn = hasSize(node) ? Math.max(node.width || 0, node.height || 0) / PX_PER_IN : 0.01;
             items.push({
               id: node.id,
               type: "LINE",
               xIn, yIn,
-              // Рисуем как горизонтальную линию длиной lengthIn и поворачиваем
-              wIn: Math.max(0.01, lengthIn),
-              hIn: 0,
-              rotate,
+              wIn: wInL,
+              hIn: hInL,
+              rotate: 0,
               strokeHex,
               strokePt,
               cap: capMap,

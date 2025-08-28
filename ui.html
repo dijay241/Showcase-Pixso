@@ -207,17 +207,21 @@
             });
           }
           else if (it.type === 'LINE') {
-            // Рисуем линию как узкий прямоугольник: высота = толщина штриха (pt→in)
-            // 1px в Figma = 0.01pt в PPTX, следовательно высота в дюймах очень мала
-            const heightIn = Math.max(0.0001, (it.strokePt || 0.01) / 72);
-            slide.addShape(pptx.ShapeType.rect, {
+            // Настоящая линия: используем вектор направления w/h без rotate
+            slide.addShape(pptx.ShapeType.line, {
               x: (it.xIn||0) + dx,
               y: (it.yIn||0) + dy,
               w: Math.max(0.01, it.wIn || 0.01),
-              h: heightIn,
-              rotate: it.rotate ? Math.round(it.rotate) : 0,
-              fill: { color: it.strokeHex },
-              line: { color: it.strokeHex, width: 0 }
+              h: it.hIn || 0,
+              rotate: 0,
+              line: {
+                color: it.strokeHex,
+                width: Math.max(0.01, it.strokePt || 0.01),
+                dashType: it.dash || 'solid',
+                beginArrowType: it.beginArrow ? 'triangle' : 'none',
+                endArrowType: it.endArrow ? 'triangle' : 'none',
+                endCap: it.cap || 'flat'
+              }
             });
           }
           else if (it.type === 'SVG') {
