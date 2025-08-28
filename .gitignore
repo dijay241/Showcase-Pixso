@@ -1,0 +1,20 @@
+# Node modules
+node_modules/
+
+# Package manager lockfiles
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+bun.lockb
+
+# Package manager caches/stores
+.pnpm-store/
+.npm/
+.yarn/**
+.pnp.*
+
+# Tooling/monorepo caches
+.turbo/
+
+# Compiled plugin bundle
+code.js

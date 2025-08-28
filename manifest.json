@@ -1,0 +1,12 @@
+{
+    "name": "Frame to PowerPoint (editable)",
+    "id": "com.example.figma-pptx-exporter",
+    "api": "1.0.0",
+    "main": "code.js",
+    "ui": "ui.html",
+    "editorType": ["figma"],
+    "relaunchButtons": [
+      { "command": "export", "name": "Export to PowerPoint" }
+    ]
+  }
+  
