@@ -109,7 +109,7 @@
         const xIn = (absX - frameAbsX) / PX_PER_IN;
         const yIn = (absY - frameAbsY) / PX_PER_IN;
         const rotate = rotationFromTransform((node as SceneNode).absoluteTransform);
-        const wIn = hasSize(node) ? node.width / PX_PER_IN : undefined;
+        const wIn = hasSize(node) ? (node.width / PX_PER_IN) * 1.05 : undefined;
         const hIn = hasSize(node) ? node.height / PX_PER_IN : undefined;
 
         // Фон вложенных фреймов/компонентов/инстансов
@@ -165,7 +165,7 @@
               if (seg.letterSpacing.unit === "PIXELS")
                 charSpacingPt = seg.letterSpacing.value * 0.75; // 1 px = 0.75 pt
               if (seg.letterSpacing.unit === "PERCENT")
-                charSpacingPt = (seg.fontSize || 12) * (seg.letterSpacing.value / 100);
+                charSpacingPt = (seg.fontSize || 12) * (seg.letterSpacing.value / 100) * 0.75;
             }
 
             // lineHeight: либо pts, либо multiple
@@ -174,29 +174,28 @@
               if (seg.lineHeight.unit === "PIXELS")
                 lineSpacing = seg.lineHeight.value * 0.75;
               if (seg.lineHeight.unit === "PERCENT")
-                lineSpacing = (seg.fontSize || 12) * (seg.lineHeight.value / 100);
+                lineSpacing = (seg.fontSize || 12) * (seg.lineHeight.value / 100) * 0.75;
             }
 
             // Определяем свойства списка из Figma
             let bullet: boolean | { type?: string; code?: string; style?: string } | undefined;
             let indentLevel: number | undefined;
-
-            console.log(node.name, 'listOptions:', listOptions, Object.keys(listOptions).length);
             
-             if (listOptions && Object.keys(listOptions).length) {
+            if (listOptions && Object.keys(listOptions).length) {
+            
+              const listType = listOptions.type;
               
-                const listType = listOptions.type;
-                
-                if (listType === 'ORDERED') {
-                  bullet = { type: 'number' };
-                } else if (listType === 'UNORDERED') {
-                  bullet = true;
-                } else if (listType === 'NONE') {
-                  bullet = false;
-                } else {
-                  bullet = false;
-                }
-             }
+              if (listType === 'ORDERED') {
+                bullet = { type: 'number' };
+              } else if (listType === 'UNORDERED') {
+                bullet = true;
+              } else if (listType === 'NONE') {
+                bullet = false;
+              } else {
+                bullet = false;
+              }
+              
+            }
 
             
 
