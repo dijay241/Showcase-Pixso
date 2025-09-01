@@ -170,13 +170,13 @@
         // подстрахуемся: если размер слайда не совпадает с фреймом, просто центрируем содержимое «как есть»
         const dx = 0, dy = 0; // можно ввести опцию выравнивания, но по умолчанию 1:1
 
-        // сортировка по zIndex
-        const items = [...f.items].sort((a,b)=>a.zIndex - b.zIndex);
-
-        for (const it of items) {
-          if (it.type === 'TEXT') {
+        // Рекурсивная функция для рендера элементов (включая группы)
+        const renderItem = (item, parentX = 0, parentY = 0) => {
+          const dx = parentX, dy = parentY;
+          
+          if (item.type === 'TEXT') {
             // маппим массив «ранов» Figma в массив объектов PptxGenJS
-            const runs = it.runs.map(r => ({
+            const runs = item.runs.map(r => ({
               text: r.text,
               options: {
                 ...r.options,
@@ -185,66 +185,87 @@
               }
             }));
             slide.addText(runs, {
-              x: (it.xIn||0) + dx, y: (it.yIn||0) + dy,
-              w: it.boxWIn, h: it.boxHIn,
-              align: it.align || 'left',
-              valign: it.valign || 'top',
-              rotate: it.rotate ? Math.round(it.rotate) : 0,
+              x: (item.xIn||0) + dx, y: (item.yIn||0) + dy,
+              w: item.boxWIn, h: item.boxHIn,
+              align: item.align || 'left',
+              valign: item.valign || 'top',
+              rotate: item.rotate ? Math.round(item.rotate) : 0,
               isTextBox: true,
               wrap: true,
               // Включаем "Resize shape to fit text"
-              autoFit: false,
-              bullet: it.bullet,
+              autoFit: true,
               margin: 0
-            }); // редактируемый текст + размеры/позиции/поворот :contentReference[oaicite:7]{index=7}
-          }
-          else if (it.type === 'RECT') {
-            slide.addShape(pptx.ShapeType.rect, {
-              x: (it.xIn||0) + dx, y: (it.yIn||0) + dy,
-              w: it.wIn || 0.01, h: it.hIn || 0.01,
-              rotate: it.rotate ? Math.round(it.rotate) : 0,
-              fill: { color: it.fillHex },
-              line: { color: it.fillHex, width: 0 }
             });
           }
-          else if (it.type === 'LINE') {
+          else if (item.type === 'RECT') {
+            const shapeOpts = {
+              x: (item.xIn||0) + dx, y: (item.yIn||0) + dy,
+              w: item.wIn || 0.01, h: item.hIn || 0.01,
+              rotate: item.rotate ? Math.round(item.rotate) : 0,
+              fill: { color: item.fillHex }
+            };
+            
+            // Добавляем рамку если есть
+            if (item.borderHex && item.borderWidth) {
+              shapeOpts.line = {
+                color: item.borderHex,
+                width: item.borderWidth,
+                dashType: item.borderStyle === 'dashed' ? 'dash' : 'solid'
+              };
+            } else {
+              shapeOpts.line = { color: item.fillHex, width: 0 };
+            }
+            
+            slide.addShape(pptx.ShapeType.rect, shapeOpts);
+          }
+          else if (item.type === 'LINE') {
             // Настоящая линия: используем вектор направления w/h без rotate
             slide.addShape(pptx.ShapeType.line, {
-              x: (it.xIn||0) + dx,
-              y: (it.yIn||0) + dy,
-              w: Math.max(0.01, it.wIn || 0.01),
-              h: it.hIn || 0,
+              x: (item.xIn||0) + dx,
+              y: (item.yIn||0) + dy,
+              w: Math.max(0.01, item.wIn || 0.01),
+              h: item.hIn || 0,
               rotate: 0,
               line: {
-                color: it.strokeHex,
-                width: Math.max(0.01, it.strokePt || 0.01),
-                dashType: it.dash || 'solid',
-                beginArrowType: it.beginArrow ? 'triangle' : 'none',
-                endArrowType: it.endArrow ? 'triangle' : 'none',
-                endCap: it.cap || 'flat'
+                color: item.strokeHex,
+                width: Math.max(0.01, item.strokePt || 0.01),
+                dashType: item.dash || 'solid',
+                beginArrowType: item.beginArrow ? 'triangle' : 'none',
+                endArrowType: item.endArrow ? 'triangle' : 'none',
+                endCap: item.cap || 'flat'
               }
             });
           }
-          else if (it.type === 'SVG') {
+          else if (item.type === 'SVG') {
             slide.addImage({
-              data: it.svgBase64, // svg как image/svg+xml (вектор)
-              x: (it.xIn||0) + dx, y: (it.yIn||0) + dy,
-              w: it.wIn || 1, h: it.hIn || 1,
-              rotate: it.rotate ? Math.round(it.rotate) : 0
-            }); // SVG поддерживается в современных версиях PowerPoint / M365 :contentReference[oaicite:8]{index=8}
-          }
-          else if (it.type === 'IMAGE') {
-            slide.addImage({
-              data: it.dataBase64,
-              x: (it.xIn||0) + dx, y: (it.yIn||0) + dy,
-              w: it.wIn || 1, h: it.hIn || 1,
-              rotate: it.rotate ? Math.round(it.rotate) : 0
+              data: item.svgBase64, // svg как image/svg+xml (вектор)
+              x: (item.xIn||0) + dx, y: (item.yIn||0) + dy,
+              w: item.wIn || 1, h: item.hIn || 1,
+              rotate: item.rotate ? Math.round(item.rotate) : 0
             });
           }
+          else if (item.type === 'IMAGE') {
+            slide.addImage({
+              data: item.dataBase64,
+              x: (item.xIn||0) + dx, y: (item.yIn||0) + dy,
+              w: item.wIn || 1, h: item.hIn || 1,
+              rotate: item.rotate ? Math.round(item.rotate) : 0
+            });
+          }
+          else if (item.type === 'GROUP') {
+            // Рекурсивно рендерим детей группы
+            for (const child of item.children) {
+              renderItem(child, dx, dy);
+            }
+          }
+        };
+        
+        // Сортируем элементы по zIndex и рендерим
+        const sortedItems = [...f.items].sort((a,b) => a.zIndex - b.zIndex);
+        for (const item of sortedItems) {
+          renderItem(item);
         }
-      }
-
-      // 1) обычное сохранение (без встроенных шрифтов)
+      } // закрываем цикл for (const f of FRAMES)
       if (!$fontFiles.files || !$fontFiles.files.length) {
         const base = window.__FILE_NAME_BASE__ || 'From-Figma';
         await pptx.writeFile({ fileName: base + '.pptx' }); // возвращает Promise :contentReference[oaicite:9]{index=9}

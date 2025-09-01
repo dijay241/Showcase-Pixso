@@ -22,7 +22,7 @@
   
   type ExportItemBase = {
     id: string;
-    type: "TEXT" | "SVG" | "IMAGE" | "RECT" | "LINE";
+    type: "TEXT" | "SVG" | "IMAGE" | "RECT" | "LINE" | "GROUP";
     xIn?: number; // inches
     yIn?: number;
     wIn?: number;
@@ -45,6 +45,7 @@
   type ExportSvgItem = ExportItemBase & {
     type: "SVG";
     svgBase64: string; // "image/svg+xml;base64,...."
+    strokeWeight?: number;
   };
   
   type ExportImageItem = ExportItemBase & {
@@ -56,6 +57,9 @@
   type ExportRectItem = ExportItemBase & {
     type: "RECT";
     fillHex: string;
+    borderHex?: string;
+    borderWidth?: number;
+    borderStyle?: string;
   };
 
   type ExportLineItem = ExportItemBase & {
@@ -67,6 +71,11 @@
     beginArrow?: boolean;
     endArrow?: boolean;
   };
+
+  type ExportGroupItem = ExportItemBase & {
+    type: "GROUP";
+    children: Array<ExportTextItem | ExportSvgItem | ExportImageItem | ExportRectItem | ExportLineItem | ExportGroupItem>;
+  };
   
   type ExportFrame = {
     id: string;
@@ -76,7 +85,7 @@
     slideWIn: number;  // = widthPx / 96
     slideHIn: number;  // = heightPx / 96
     bgColorHex?: string;
-    items: Array<ExportTextItem | ExportSvgItem | ExportImageItem | ExportRectItem | ExportLineItem>;
+    items: Array<ExportTextItem | ExportSvgItem | ExportImageItem | ExportRectItem | ExportLineItem | ExportGroupItem>;
   };
   
   figma.on("run", async ({ command }) => {
@@ -100,37 +109,77 @@
       const slideHIn = pxToIn(frame.height);
       const bgHex = frameBackgroundHex(frame);
   
-      const items: Array<ExportTextItem | ExportSvgItem | ExportImageItem | ExportRectItem | ExportLineItem> = [];
+      const items: Array<ExportTextItem | ExportSvgItem | ExportImageItem | ExportRectItem | ExportLineItem | ExportGroupItem> = [];
       // Рекурсивный обход: сначала фоны фреймов (как прямоугольники), затем дети, затем прочие элементы
-      const walk = async (node: SceneNode) => {
+      const walk = async (node: SceneNode, parentGroup?: ExportGroupItem) => {
         if (!node.visible) return;
         const { x: absX, y: absY } = absOrigin(node as SceneNode);
         const xIn = pxToIn(absX - frameAbsX);
         const yIn = pxToIn(absY - frameAbsY);
-        const rotate = rotationFromTransform((node as SceneNode).absoluteTransform);
+        // Получаем поворот из свойства rotation или вычисляем из трансформации
+        let rotate = 0;
+        if ('rotation' in node && typeof (node as any).rotation === 'number') {
+          rotate = (node as any).rotation;
+        } else {
+          rotate = rotationFromTransform((node as SceneNode).absoluteTransform);
+        }
+        
+        if (rotate !== 0) {
+          console.log('Node:', node.name, 'Type:', node.type, 'Rotation:', rotate, 'Source:', 'rotation' in node ? 'property' : 'transform');
+        }
         const wIn = hasSize(node) ? pxToIn(node.width) : undefined;
         const hIn = hasSize(node) ? pxToIn(node.height) : undefined;
 
-        // Фон вложенных фреймов/компонентов/инстансов
+        // Фон и рамка вложенных фреймов/компонентов/инстансов
         if (node.type === "FRAME" || node.type === "COMPONENT" || node.type === "INSTANCE") {
           const bg = frameBackgroundHex(node as FrameNode | ComponentNode | InstanceNode);
-          if (bg && hasSize(node) && (node.width > 0 || node.height > 0)) {
+          const border = frameBorder(node as FrameNode | ComponentNode | InstanceNode);
+          
+          if ((bg || border) && hasSize(node) && (node.width > 0 || node.height > 0)) {
             items.push({
-              id: node.id + "::bg",
+              id: node.id + "::frame",
               type: "RECT",
               xIn, yIn,
               wIn, hIn,
               rotate,
-              fillHex: bg,
-              name: node.name + " (bg)",
+              fillHex: bg || "00000000", // фон или прозрачность
+              borderHex: border ? border.color : undefined,
+              borderWidth: border ? border.width : undefined,
+              borderStyle: border ? border.style : undefined,
+              name: node.name + " (frame)",
               zIndex: zCounter++
             });
           }
         }
 
         if ("children" in node && (node as any).children) {
-          for (const child of (node as any).children as SceneNode[]) {
-            await walk(child);
+          // Если это группа, создаём элемент группы
+          if (node.type === "GROUP") {
+            const groupItem: ExportGroupItem = {
+              id: node.id,
+              type: "GROUP",
+              xIn, yIn, wIn, hIn, rotate,
+              name: node.name,
+              zIndex: zCounter++,
+              children: []
+            };
+            
+            // Рекурсивно обрабатываем детей группы
+            for (const child of (node as any).children as SceneNode[]) {
+              await walk(child, groupItem);
+            }
+            
+            // Добавляем группу в родительский контейнер
+            if (parentGroup) {
+              parentGroup.children.push(groupItem);
+            } else {
+              items.push(groupItem);
+            }
+          } else {
+            // Для фреймов и других контейнеров просто рекурсивно обходим детей
+            for (const child of (node as any).children as SceneNode[]) {
+              await walk(child, parentGroup);
+            }
           }
         }
 
@@ -217,7 +266,7 @@
           const valign = mapVAlign(textNode.textAlignVertical);
           const textwIn = wIn ? wIn * 1.05 : undefined;
   
-          items.push({
+          const textItem: ExportTextItem = {
             id: textNode.id,
             type: "TEXT",
             xIn, yIn,
@@ -229,7 +278,14 @@
             align, valign,
             name: textNode.name,
             zIndex: zCounter++
-          });
+          };
+          
+          // Добавляем в родительскую группу или в основной список
+          if (parentGroup) {
+            parentGroup.children.push(textItem);
+          } else {
+            items.push(textItem);
+          }
         }
         else if (isVectorNode(node)) {
           if (!hasRenderableSize(node)) return;
@@ -240,30 +296,25 @@
               svgIdAttribute: false,
               svgSimplifyStroke: true
             });
-            //const vp = node.vectorPaths[0].data;
-            //const isClosed = /z$/i.test(vp.trim());
+            
             const svgBase64 = "data:image/svg+xml;base64," + figma.base64Encode(data);
-            const strokeWeight = (node as VectorNode).strokeWeight;
-            const start = node.strokeStartArrowhead; // например "NONE" или "ARROW"
-            const end   = node.strokeEndArrowhead;
+            const strokeWeight = (node as any).strokeWeight;
 
-            const hasStartArrow = start !== "NONE";
-            const hasEndArrow   = end   !== "NONE";
-            const arrowCaps: StrokeCap[] = [
-  'ARROW_LINES', 'ARROW_EQUILATERAL',
-  'TRIANGLE_FILLED', 'DIAMOND_FILLED', 'CIRCLE_FILLED'
-];
-            const hasArrowsBothEnds = arrowCaps.includes(node.strokeCap as StrokeCap);
-            //console.log(node.name, node.strokeWeight, hIn, getArrowInfo(node));
-            items.push({
+            const svgItem: ExportSvgItem = {
               id: node.id,
               type: "SVG",
-              xIn, yIn, wIn, hIn: hIn || (strokeWeight * 0.1),
+              xIn, yIn, wIn, hIn: hIn || (strokeWeight ? strokeWeight * 0.01 : 0.01),
               rotate,
               svgBase64,
               name: node.name,
               zIndex: zCounter++
-            });
+            };
+            
+            if (parentGroup) {
+              parentGroup.children.push(svgItem);
+            } else {
+              items.push(svgItem);
+            }
           } catch (e) {
             // пропускаем узлы, которые Figma не может экспортировать (нет видимых слоёв и т.п.)
           }
@@ -335,8 +386,17 @@
   }
   
   function rotationFromTransform(m: Transform): number {
-    const a = m[0][0], b = m[0][1];
-    const angle = Math.atan2(b, a) * 180 / Math.PI;
+    const a = m[0][0], b = m[0][1], c = m[1][0], d = m[1][1];
+    
+    // Вычисляем угол поворота из матрицы трансформации
+    let angle = Math.atan2(b, a) * 180 / Math.PI;
+    
+    // Нормализуем угол в диапазон -180 до 180
+    while (angle > 180) angle -= 360;
+    while (angle < -180) angle += 360;
+    
+    console.log('Transform matrix:', m, 'Calculated angle:', angle);
+    
     return Math.round(angle * 1000) / 1000;
   }
   
@@ -416,3 +476,20 @@
   function pxToIn(px: number):number { return px / 96; }       // 96 px = 1 in
   
   function pxToPt(px: number):number { return px * 0.75; }     // 1 px = 0.75 pt
+  
+  function frameBorder(n: FrameNode | ComponentNode | InstanceNode) {
+    const strokes = (n as any).strokes as ReadonlyArray<Paint> | PluginAPI["mixed"];
+    const strokeWeight = (n as any).strokeWeight;
+    const strokeAlign = (n as any).strokeAlign;
+    
+    if (!strokes || !Array.isArray(strokes) || !strokeWeight) return null;
+    
+    const stroke = firstSolidPaint(strokes);
+    if (!stroke) return null;
+    
+    return {
+      color: rgbToHex(stroke.color, (stroke.opacity === undefined || stroke.opacity === null) ? 1 : stroke.opacity),
+      width: pxToPt(strokeWeight),
+      style: strokeAlign === 'CENTER' ? 'solid' : 'solid' // можно расширить для разных стилей
+    };
+  }
