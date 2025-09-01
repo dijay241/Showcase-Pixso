@@ -124,9 +124,7 @@
           rotate = rotationFromTransform((node as SceneNode).absoluteTransform);
         }
         
-        if (rotate !== 0) {
-          console.log('Node:', node.name, 'Type:', node.type, 'Rotation:', rotate, 'Source:', 'rotation' in node ? 'property' : 'transform');
-        }
+
         const wIn = hasSize(node) ? pxToIn(node.width) : undefined;
         const hIn = hasSize(node) ? pxToIn(node.height) : undefined;
 
@@ -395,7 +393,7 @@
     while (angle > 180) angle -= 360;
     while (angle < -180) angle += 360;
     
-    console.log('Transform matrix:', m, 'Calculated angle:', angle);
+
     
     return Math.round(angle * 1000) / 1000;
   }
