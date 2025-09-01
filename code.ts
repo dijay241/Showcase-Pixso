@@ -39,6 +39,7 @@
     align?: "left" | "center" | "right";
     boxWIn: number;
     boxHIn: number;
+    textwIn?: number;
   };
   
   type ExportSvgItem = ExportItemBase & {
@@ -78,8 +79,6 @@
     items: Array<ExportTextItem | ExportSvgItem | ExportImageItem | ExportRectItem | ExportLineItem>;
   };
   
-  const PX_PER_IN = 96;
-  
   figma.on("run", async ({ command }) => {
     const selection = figma.currentPage.selection;
     const frames = selection.filter(n =>
@@ -97,8 +96,8 @@
   
     for (const frame of frames) {
       const { x: frameAbsX, y: frameAbsY } = absOrigin(frame);
-      const slideWIn = frame.width / PX_PER_IN;
-      const slideHIn = frame.height / PX_PER_IN;
+      const slideWIn = pxToIn(frame.width);
+      const slideHIn = pxToIn(frame.height);
       const bgHex = frameBackgroundHex(frame);
   
       const items: Array<ExportTextItem | ExportSvgItem | ExportImageItem | ExportRectItem | ExportLineItem> = [];
@@ -106,11 +105,11 @@
       const walk = async (node: SceneNode) => {
         if (!node.visible) return;
         const { x: absX, y: absY } = absOrigin(node as SceneNode);
-        const xIn = (absX - frameAbsX) / PX_PER_IN;
-        const yIn = (absY - frameAbsY) / PX_PER_IN;
+        const xIn = pxToIn(absX - frameAbsX);
+        const yIn = pxToIn(absY - frameAbsY);
         const rotate = rotationFromTransform((node as SceneNode).absoluteTransform);
-        const wIn = hasSize(node) ? (node.width / PX_PER_IN) * 1.05 : undefined;
-        const hIn = hasSize(node) ? node.height / PX_PER_IN : undefined;
+        const wIn = hasSize(node) ? pxToIn(node.width) : undefined;
+        const hIn = hasSize(node) ? pxToIn(node.height) : undefined;
 
         // Фон вложенных фреймов/компонентов/инстансов
         if (node.type === "FRAME" || node.type === "COMPONENT" || node.type === "INSTANCE") {
@@ -163,18 +162,18 @@
             let charSpacingPt: number | undefined;
             if (seg.letterSpacing) {
               if (seg.letterSpacing.unit === "PIXELS")
-                charSpacingPt = seg.letterSpacing.value * 0.75; // 1 px = 0.75 pt
+                charSpacingPt = pxToPt(seg.letterSpacing.value);
               if (seg.letterSpacing.unit === "PERCENT")
-                charSpacingPt = (seg.fontSize || 12) * (seg.letterSpacing.value / 100) * 0.75;
+                charSpacingPt = (seg.fontSize || 12) * pxToPt(seg.letterSpacing.value / 100);
             }
 
             // lineHeight: либо pts, либо multiple
             let lineSpacing: number | undefined;
             if (seg.lineHeight) {
               if (seg.lineHeight.unit === "PIXELS")
-                lineSpacing = seg.lineHeight.value * 0.75;
+                lineSpacing = pxToPt(seg.lineHeight.value);
               if (seg.lineHeight.unit === "PERCENT")
-                lineSpacing = (seg.fontSize || 12) * (seg.lineHeight.value / 100) * 0.75;
+                lineSpacing = (seg.fontSize || 12) * pxToPt(seg.lineHeight.value / 100);
             }
 
             // Определяем свойства списка из Figma
@@ -197,14 +196,11 @@
               
             }
 
-            
-
             runs.push({
               text: str,
               options: {
                 fontFace: isFont(seg.fontName) ? seg.fontName.family : undefined,
-                // Figma fontSize в px → pptx в pt (1 px = 0.75 pt)
-                fontSize: typeof seg.fontSize === 'number' ? Math.round(seg.fontSize * 0.75 * 100) / 100 : undefined,
+                fontSize: typeof seg.fontSize === 'number' ? Math.round(pxToPt(seg.fontSize)) : undefined,
                 color: colorHex,
                 underline,
                 strike,
@@ -219,13 +215,14 @@
   
           const align = mapAlign(textNode.textAlignHorizontal);
           const valign = mapVAlign(textNode.textAlignVertical);
+          const textwIn = wIn ? wIn * 1.05 : undefined;
   
           items.push({
             id: textNode.id,
             type: "TEXT",
             xIn, yIn,
-            wIn, hIn,
-            boxWIn: wIn || 1,
+            textwIn, hIn,
+            boxWIn: textwIn || 1,
             boxHIn: hIn || 1,
             rotate,
             runs,
@@ -240,13 +237,28 @@
             const data = await (node as unknown as ExportMixin).exportAsync({
               format: "SVG",
               svgOutlineText: false, // важно: не превращать текст в кривые
-              svgIdAttribute: false
+              svgIdAttribute: false,
+              svgSimplifyStroke: true
             });
+            //const vp = node.vectorPaths[0].data;
+            //const isClosed = /z$/i.test(vp.trim());
             const svgBase64 = "data:image/svg+xml;base64," + figma.base64Encode(data);
+            const strokeWeight = (node as VectorNode).strokeWeight;
+            const start = node.strokeStartArrowhead; // например "NONE" или "ARROW"
+            const end   = node.strokeEndArrowhead;
+
+            const hasStartArrow = start !== "NONE";
+            const hasEndArrow   = end   !== "NONE";
+            const arrowCaps: StrokeCap[] = [
+  'ARROW_LINES', 'ARROW_EQUILATERAL',
+  'TRIANGLE_FILLED', 'DIAMOND_FILLED', 'CIRCLE_FILLED'
+];
+            const hasArrowsBothEnds = arrowCaps.includes(node.strokeCap as StrokeCap);
+            //console.log(node.name, node.strokeWeight, hIn, getArrowInfo(node));
             items.push({
               id: node.id,
               type: "SVG",
-              xIn, yIn, wIn, hIn,
+              xIn, yIn, wIn, hIn: hIn || (strokeWeight * 0.1),
               rotate,
               svgBase64,
               name: node.name,
@@ -364,6 +376,7 @@
   function isVectorNode(n: SceneNode): boolean {
     return (
       (n.type === "VECTOR" ||
+        n.type === "LINE" ||
         n.type === "ELLIPSE" ||
         n.type === "POLYGON" ||
         n.type === "STAR" ||
@@ -373,6 +386,7 @@
       "exportAsync" in n
     );
   }
+
   function hasImageFill(n: SceneNode): boolean {
     // Считаем растровыми только узлы с заливкой типа IMAGE
     const anyNode = n as any;
@@ -399,3 +413,6 @@
     return true;
   }
   
+  function pxToIn(px: number):number { return px / 96; }       // 96 px = 1 in
+  
+  function pxToPt(px: number):number { return px * 0.75; }     // 1 px = 0.75 pt
