@@ -192,8 +192,9 @@
               rotate: it.rotate ? Math.round(it.rotate) : 0,
               isTextBox: true,
               wrap: true,
-              // Включаем режим мастера переносов по ширине бокса
-              autoFit: false,
+              // Включаем "Resize shape to fit text"
+              autoFit: true,
+              bullet: it.bullet,
               margin: 0
             }); // редактируемый текст + размеры/позиции/поворот :contentReference[oaicite:7]{index=7}
           }

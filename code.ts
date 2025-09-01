@@ -2,7 +2,7 @@
 // TS таргет: ES2019. Собираем из выделенных фреймов плоский список объектов
 // (TEXT / SVG / IMAGE) с абсолютными координатами, размерами и поворотом.
 
-type ExportTextRun = {
+  type ExportTextRun = {
     text: string;
     options: {
       fontFace?: string;
@@ -15,6 +15,8 @@ type ExportTextRun = {
       charSpacing?: number;  // в пунктах
       lineSpacing?: number;  // в пунктах
       breakLine?: boolean;
+      bullet?: boolean | { type?: string; code?: string; style?: string };
+      indentLevel?: number;
     };
   };
   
@@ -138,10 +140,14 @@ type ExportTextRun = {
           const runs: ExportTextRun[] = [];
   
           const segments = textNode.getStyledTextSegments(["fontName", "fontSize", "fills", "textDecoration", "letterSpacing", "lineHeight"]);
+          
+          // Получаем информацию о списках из Figma
+          const listOptions = (textNode as any).getRangeListOptions ? (textNode as any).getRangeListOptions(0, textNode.characters.length) : null;
+          
           for (const seg of segments) {
             const str = textNode.characters.substring(seg.start, seg.end);
             if (!str.length) continue;
-  
+
             const fill = firstSolidPaint(seg.fills);
             const colorHex = fill ? rgbToHex(fill.color, fill.opacity) : "000000";
             const underline = seg.textDecoration === "UNDERLINE";
@@ -152,7 +158,7 @@ type ExportTextRun = {
             const isItalic = typeof seg.fontName === 'object' && isFont(seg.fontName)
               ? /italic/i.test(seg.fontName.style || '')
               : false;
-  
+
             // letterSpacing: Figma -> pptx (pt)
             let charSpacingPt: number | undefined;
             if (seg.letterSpacing) {
@@ -161,7 +167,7 @@ type ExportTextRun = {
               if (seg.letterSpacing.unit === "PERCENT")
                 charSpacingPt = (seg.fontSize || 12) * (seg.letterSpacing.value / 100);
             }
-  
+
             // lineHeight: либо pts, либо multiple
             let lineSpacing: number | undefined;
             if (seg.lineHeight) {
@@ -170,7 +176,30 @@ type ExportTextRun = {
               if (seg.lineHeight.unit === "PERCENT")
                 lineSpacing = (seg.fontSize || 12) * (seg.lineHeight.value / 100);
             }
-  
+
+            // Определяем свойства списка из Figma
+            let bullet: boolean | { type?: string; code?: string; style?: string } | undefined;
+            let indentLevel: number | undefined;
+
+            console.log(node.name, 'listOptions:', listOptions, Object.keys(listOptions).length);
+            
+             if (listOptions && Object.keys(listOptions).length) {
+              
+                const listType = listOptions.type;
+                
+                if (listType === 'ORDERED') {
+                  bullet = { type: 'number' };
+                } else if (listType === 'UNORDERED') {
+                  bullet = true;
+                } else if (listType === 'NONE') {
+                  bullet = false;
+                } else {
+                  bullet = false;
+                }
+             }
+
+            
+
             runs.push({
               text: str,
               options: {
@@ -183,7 +212,8 @@ type ExportTextRun = {
                 bold: isBold || undefined,
                 italic: isItalic || undefined,
                 charSpacing: charSpacingPt,
-                lineSpacing
+                lineSpacing,
+                bullet
               }
             });
           }
@@ -204,39 +234,6 @@ type ExportTextRun = {
             name: textNode.name,
             zIndex: zCounter++
           });
-        }
-        else if (node.type === "LINE") {
-          // Экспорт как настоящая линия (ShapeType.line) через UI-рендер
-          const stroke = firstSolidPaint((node as any).strokes) as SolidPaint | null;
-          if (stroke && hasSize(node)) {
-            const strokeHex = rgbToHex(stroke.color, (stroke.opacity === undefined || stroke.opacity === null) ? 1 : stroke.opacity);
-            const strokePx = typeof (node as any).strokeWeight === 'number' ? (node as any).strokeWeight : 1;
-            // Геометрия линии: используем w/h как вектор направления, без rotate
-            const wInL = node.width / PX_PER_IN;
-            const hInL = node.height / PX_PER_IN;
-            // По требованию: 1px в Figma = 0.01pt в PPTX
-            const strokePt = Math.max(0.001, strokePx * 0.01);
-            const capMap = (node as any).strokeCap === 'ROUND' ? 'round' : ( (node as any).strokeCap === 'SQUARE' ? 'square' : 'flat');
-            const dash = Array.isArray((node as any).dashPattern) && (node as any).dashPattern.length ? 'dash' : 'solid';
-            const beginArrow = (node as any).strokeStartArrow && (node as any).strokeStartArrow !== 'NONE';
-            const endArrow = (node as any).strokeEndArrow && (node as any).strokeEndArrow !== 'NONE';
-            items.push({
-              id: node.id,
-              type: "LINE",
-              xIn, yIn,
-              wIn: wInL,
-              hIn: hInL,
-              rotate: 0,
-              strokeHex,
-              strokePt,
-              cap: capMap,
-              dash,
-              beginArrow,
-              endArrow,
-              name: node.name,
-              zIndex: zCounter++
-            });
-          }
         }
         else if (isVectorNode(node)) {
           if (!hasRenderableSize(node)) return;
