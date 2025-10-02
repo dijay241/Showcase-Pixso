@@ -1,10 +1,12 @@
 {
-    "name": "Showcase α",
-    "id": "com.example.figma-pptx-exporter",
+    "name": "Showcase Pixso",
+    "id": "1548298943806443037",
     "api": "1.0.0",
     "main": "code.js",
     "ui": "ui.html",
-    "editorType": ["figma"],
+    "editorType": ["pixso"],
+    "networkAccess": { "allowedDomains": ["none"] },
+    "documentAccess": "dynamic-page",
     "relaunchButtons": [
       { "command": "export", "name": "Export to PowerPoint" }
     ]

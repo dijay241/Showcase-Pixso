@@ -3,261 +3,136 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Frame to PowerPoint (editable)</title>
-  <style>
-    body { font: 13px/1.4 Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial; margin:16px; }
-    .row { margin: 8px 0; }
-    label { display:block; margin-bottom:4px; font-weight:600; }
-    input[type="file"] { width:100%; }
-    .card { border:1px solid #e4e4e4; border-radius:8px; padding:12px; margin:10px 0; }
-    .frames { max-height:180px; overflow:auto; border:1px solid #eee; padding:8px; border-radius:6px; }
-    button { padding:8px 12px; border-radius:8px; border:0; background:#0d6efd; color:#fff; font-weight:600; cursor:pointer; }
-    button.secondary { background:#eee; color:#222; margin-left:8px; }
-    small { color:#666; }
-  </style>
-  <!-- PptxGenJS (bundle включает JSZip) -->
+  <title>Frame to PowerPoint</title>
+  <!-- PptxGenJS (included) -->
   <script src="https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs/dist/pptxgen.bundle.js"></script>
 </head>
 <body>
-  <h3 id="title">Export to PowerPoint</h3>
-
-  <div class="card" id="ui-block">
-    <div class="row">
-      <label>Фреймы к экспорту</label>
-      <div id="frames" class="frames"></div>
-      <small>Каждый фрейм → отдельный слайд. Порядок можно поменять перетаскиванием.</small>
-    </div>
-    <div class="row">
-      <label>Размер слайда (дюймы)</label>
-      <div>
-        W: <input id="slideW" type="number" step="0.01" style="width:80px"> 
-        H: <input id="slideH" type="number" step="0.01" style="width:80px">
-        <button class="secondary" id="useFrameSize">Как у фрейма</button>
-      </div>
-      <small>1 дюйм = 96 px. Можно задать вручную или взять из первого фрейма.</small>
-    </div>
-    <div class="row">
-      <label>Шрифты по умолчанию в презентации</label>
-      Заголовки: <input id="headFont" placeholder="Arial" style="width:140px">
-      Текст: <input id="bodyFont" placeholder="Arial" style="width:140px">
-      <small>Можно задать для согласованности, текст-боксы всё равно сохраняют свои шрифты.</small>
-    </div>
-    <div class="row">
-      <label>Карта замены шрифтов (опционально)</label>
-      <small>Например: <code>Inter=Arial; SF Pro Text=Calibri</code></small>
-      <input id="fontMap" placeholder="Inter=Arial; Roboto=Calibri" />
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="row">
-      <label>Встроить файлы шрифтов (экспериментально)</label>
-      <small>Загрузите TTF/OTF для используемых семейств. Работают только шрифты с разрешённой встраиваемостью.</small>
-      <input id="fontFiles" type="file" multiple accept=".ttf,.otf" />
-    </div>
-  </div>
-
-  <div class="row">
-    <button id="exportBtn">Export PPTX</button>
-  </div>
 
   <script>
     /** @type {any[]} */
     let FRAMES = [];
-    const $frames = document.getElementById('frames');
-    const $slideW = document.getElementById('slideW');
-    const $slideH = document.getElementById('slideH');
-    const $useFrameSize = document.getElementById('useFrameSize');
-    const $headFont = document.getElementById('headFont');
-    const $bodyFont = document.getElementById('bodyFont');
-    const $fontMap  = document.getElementById('fontMap');
-    const $fontFiles = document.getElementById('fontFiles');
 
     // Получаем данные из main
     onmessage = async (event) => {
       const msg = event.data.pluginMessage;
+
       if (!msg) return;
-      if (msg.type === 'DATA') {
-        FRAMES = msg.frames;
-        renderFrames();
-        // по умолчанию берём размер из 1-го фрейма
-        if (FRAMES[0]) {
-          $slideW.value = FRAMES[0].slideWIn.toFixed(3);
-          $slideH.value = FRAMES[0].slideHIn.toFixed(3);
-        }
-      }
+
       if (msg.type === 'AUTO') {
         FRAMES = msg.frames || [];
-        window.__FILE_NAME_BASE__ = msg.fileNameBase || 'From-Figma';
-        // скрываем UI полностью
-        document.getElementById('title').style.display = 'none';
-        document.getElementById('ui-block').style.display = 'none';
-        document.getElementById('exportBtn').style.display = 'none';
-        // ставим размер слайда равным фрейму и сразу экспортируем
-        if (FRAMES[0]) {
-          $slideW.value = FRAMES[0].slideWIn.toFixed(3);
-          $slideH.value = FRAMES[0].slideHIn.toFixed(3);
-        }
-        // автостарт экспорта
+        window.__FILE_NAME_BASE__ = msg.fileNameBase || 'From-Pixso';
+        // Автостарт экспорта
         await doExport();
       }
     };
 
-    function renderFrames() {
-      $frames.innerHTML = '';
-      FRAMES.forEach((f, i) => {
-        const div = document.createElement('div');
-        div.draggable = true;
-        div.dataset.index = String(i);
-        div.style.padding = '6px 8px';
-        div.style.border = '1px solid #ddd';
-        div.style.borderRadius = '6px';
-        div.style.marginBottom = '6px';
-        div.style.background = '#fafafa';
-        div.textContent = `${f.name}  (${Math.round(f.widthPx)}×${Math.round(f.heightPx)} px)`;
-        $frames.appendChild(div);
-      });
-      // drag-sort
-      let dragEl = null;
-      $frames.querySelectorAll('div').forEach(el => {
-        el.addEventListener('dragstart', (e) => { dragEl = el; });
-        el.addEventListener('dragover', (e) => { e.preventDefault(); });
-        el.addEventListener('drop', (e) => {
-          e.preventDefault();
-          if (!dragEl || dragEl === el) return;
-          const a = +dragEl.dataset.index, b = +el.dataset.index;
-          const tmp = FRAMES[a]; FRAMES[a]=FRAMES[b]; FRAMES[b]=tmp;
-          renderFrames();
-        });
-      });
-    }
-
-    $useFrameSize.addEventListener('click', () => {
-      if (FRAMES[0]) {
-        $slideW.value = FRAMES[0].slideWIn.toFixed(3);
-        $slideH.value = FRAMES[0].slideHIn.toFixed(3);
-      }
-    });
-
-    document.getElementById('exportBtn').addEventListener('click', async () => {
-      await doExport();
-    });
 
     async function doExport() {
       const pptx = new PptxGenJS();
 
       // layout
-      const slideW = parseFloat($slideW.value || (FRAMES[0] ? FRAMES[0].slideWIn : '10'));
-      const slideH = parseFloat($slideH.value || (FRAMES[0] ? FRAMES[0].slideHIn : '5.625'));
-      pptx.defineLayout({ name:'FIGMA', width: slideW, height: slideH });
-      pptx.layout = 'FIGMA'; // фиксируем пользовательский размер слайда :contentReference[oaicite:5]{index=5}
-
-      // дефолтные шрифты презентации (необязательно)
-      const head = $headFont.value.trim();
-      const body = $bodyFont.value.trim();
-      if (head) pptx.presLayout.headFontFace = head;
-      if (body) pptx.presLayout.bodyFontFace = body; // в новых версиях это делается через pres options :contentReference[oaicite:6]{index=6}
-
-      // карта замены шрифтов "A=B; C=D"
-      const replacements = parseFontMap($fontMap.value);
+      const slideW = FRAMES[0] ? FRAMES[0].slideWIn : 10;
+      const slideH = FRAMES[0] ? FRAMES[0].slideHIn : 5.625;
+      pptx.defineLayout({ name:'PIXSO', width: slideW, height: slideH });
+      pptx.layout = 'PIXSO'; // фиксируем пользовательский размер слайда
 
       // создаём слайды
       for (const f of FRAMES) {
         const slide = pptx.addSlide();
-        if (f.bgColorHex) {
-          slide.background = { color: f.bgColorHex };
-        }
+        slide.background = { color: f.bgColorHex };
+        // Убираем создание фонового прямоугольника - PowerPoint сам управляет фоном слайда
         // подстрахуемся: если размер слайда не совпадает с фреймом, просто центрируем содержимое «как есть»
         const dx = 0, dy = 0; // можно ввести опцию выравнивания, но по умолчанию 1:1
 
         // Рекурсивная функция для рендера элементов (включая группы)
-        const renderItem = (item, parentX = 0, parentY = 0) => {
-          const dx = parentX, dy = parentY;
+        const renderItem = (item) => {
+          
+
+          //console.log(item);
           
           if (item.type === 'TEXT') {
-            // маппим массив «ранов» Figma в массив объектов PptxGenJS
+            // Простой подход: передаем текст как есть, без дополнительной обработки
+            // PptxGenJS сам должен обработать переносы строк
             const runs = item.runs.map(r => ({
               text: r.text,
               options: {
                 ...r.options,
-                fontFace: replaceFont(replacements, r.options.fontFace),
                 breakLine: false
               }
             }));
             slide.addText(runs, {
-              x: (item.xIn||0) + dx, y: (item.yIn||0) + dy,
-              w: item.boxWIn, h: item.boxHIn,
+              x: item.xIn || 0, 
+              y: item.yIn || 0,
+              w: item.boxWIn, 
+              h: item.boxHIn,
               align: item.align || 'left',
               valign: item.valign || 'top',
               rotate: item.rotate ? Math.round(item.rotate) : 0,
               isTextBox: true,
-              wrap: true,
               // Включаем "Resize shape to fit text"
               autoFit: true,
               margin: 0
             });
           }
-          else if (item.type === 'RECT') {
-            const shapeOpts = {
-              x: (item.xIn||0) + dx, y: (item.yIn||0) + dy,
-              w: item.wIn || 0.01, h: item.hIn || 0.01,
-              rotate: item.rotate ? Math.round(item.rotate) : 0,
-              fill: { color: item.fillHex }
-            };
-            
-            // Добавляем рамку если есть
-            if (item.borderHex && item.borderWidth) {
-              shapeOpts.line = {
-                color: item.borderHex,
-                width: item.borderWidth,
-                dashType: item.borderStyle === 'dashed' ? 'dash' : 'solid'
-              };
-            } else {
-              shapeOpts.line = { color: item.fillHex, width: 0 };
-            }
-            
-            slide.addShape(pptx.ShapeType.rect, shapeOpts);
-          }
           else if (item.type === 'LINE') {
-            // Настоящая линия: используем вектор направления w/h без rotate
-            slide.addShape(pptx.ShapeType.line, {
-              x: (item.xIn||0) + dx,
-              y: (item.yIn||0) + dy,
+            
+            // Настоящая линия: используем правильный синтаксис PptxGenJS
+            const lineOpts = {
+              x: item.xIn || 0,
+              y: item.yIn || 0,
               w: Math.max(0.01, item.wIn || 0.01),
-              h: item.hIn || 0,
-              rotate: 0,
+              h: Math.max(0.01, item.hIn || 0.01),
+              rotate: item.rotate ? Math.round(item.rotate) : 0,
               line: {
                 color: item.strokeHex,
                 width: Math.max(0.01, item.strokePt || 0.01),
                 dashType: item.dash || 'solid',
-                beginArrowType: item.beginArrow ? 'triangle' : 'none',
-                endArrowType: item.endArrow ? 'triangle' : 'none',
-                endCap: item.cap || 'flat'
-              }
-            });
+                transparency: (1 - item.strokeOpacity) * 100,
+                beginArrowType: item.endArrow || 'none',  // Исправлено: beginArrowType = endArrow
+                endArrowType: item.beginArrow || 'none'   // Исправлено: endArrowType = beginArrow
+              },
+            };
+            
+          
+            
+            // Для вертикальных линий (w < h) используем специальную обработку
+            if (item.wIn < item.hIn) {
+              // Вертикальная линия: w должно быть минимальным, h - длиной линии
+              lineOpts.w = 0.01; // Минимальная ширина для вертикальной линии
+              lineOpts.h = Math.max(0.01, item.hIn || 0.01); // Высота = длина линии
+            } else {
+              // Горизонтальная линия: h должно быть минимальным, w - длиной линии
+              lineOpts.w = Math.max(0.01, item.wIn || 0.01); // Ширина = длина линии
+              lineOpts.h = 0.01; // Минимальная высота для горизонтальной линии
+            }
+
+            slide.addShape(pptx.shapes.LINE, lineOpts);
+            
           }
           else if (item.type === 'SVG') {
             slide.addImage({
               data: item.svgBase64, // svg как image/svg+xml (вектор)
-              x: (item.xIn||0) + dx, y: (item.yIn||0) + dy,
-              w: item.wIn || 1, h: item.hIn || 1,
-              rotate: item.rotate ? Math.round(item.rotate) : 0
+              x: item.xIn || 0, 
+              y: item.yIn || 0,
+              w: item.wIn || 1,
+              h: item.hIn || 1
             });
           }
           else if (item.type === 'IMAGE') {
             slide.addImage({
               data: item.dataBase64,
-              x: (item.xIn||0) + dx, y: (item.yIn||0) + dy,
+              x: item.xIn || 0, y: item.yIn || 0,
               w: item.wIn || 1, h: item.hIn || 1,
               rotate: item.rotate ? Math.round(item.rotate) : 0
             });
           }
-          else if (item.type === 'GROUP') {
-            // Рекурсивно рендерим детей группы
-            for (const child of item.children) {
-              renderItem(child, dx, dy);
-            }
-          }
+          // else if (item.type === 'GROUP') {
+          //   // Рекурсивно рендерим детей группы
+          //   for (const child of item.children) {
+          //     renderItem(child, dx, dy);
+          //   }
+          // }
         };
         
         // Сортируем элементы по zIndex и рендерим
@@ -266,147 +141,16 @@
           renderItem(item);
         }
       } // закрываем цикл for (const f of FRAMES)
-      if (!$fontFiles.files || !$fontFiles.files.length) {
-        const base = window.__FILE_NAME_BASE__ || 'From-Figma';
-        await pptx.writeFile({ fileName: base + '.pptx' }); // возвращает Promise :contentReference[oaicite:9]{index=9}
-        parent.postMessage({ pluginMessage: { type:'done' }}, '*');
-        return;
-      }
-
-      // 2) с встраиванием шрифтов (эксперимент)
-      const fontBuffers = await readFontFiles($fontFiles.files);
-      const blob = await pptx.write({ outputType: 'blob' }); // получаем Blob для пост-обработки :contentReference[oaicite:10]{index=10}
-      const patched = await embedFontsIntoPptxBlob(blob, fontBuffers);
-      // отдать файл пользователю
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(patched);
-      const base2 = window.__FILE_NAME_BASE__ || 'From-Figma';
-      a.download = base2 + ' (embedded fonts).pptx';
-      document.body.appendChild(a); a.click(); a.remove();
+      
+      const base = window.__FILE_NAME_BASE__ || 'From-Pixso';
+      await pptx.writeFile({ fileName: base + '.pptx' }); // возвращает Promise
       parent.postMessage({ pluginMessage: { type:'done' }}, '*');
+      // Закрываем плагин через небольшую задержку
+      setTimeout(() => {
+        parent.postMessage({ pluginMessage: { type:'close' }}, '*');
+      }, 1000);
     }
 
-    function parseFontMap(s) {
-      const map = new Map();
-      (s||'').split(';').forEach(pair => {
-        const [from,to] = pair.split('=').map(x => (x||'').trim()).filter(Boolean);
-        if (from && to) map.set(from, to);
-      });
-      return map;
-    }
-    function replaceFont(map, name) {
-      if (!name) return undefined;
-      return map.get(name) || name;
-    }
-
-    async function readFontFiles(fileList) {
-      const out = [];
-      for (const f of fileList) {
-        const buf = await f.arrayBuffer();
-        out.push({ name: f.name, buffer: buf });
-      }
-      return out;
-    }
-
-    // ===== Встраивание шрифтов в PPTX (ODTTF) — минимально рабочий пример =====
-    // В PPTX это: /ppt/fonts/<guid>.odttf + связь rId в presentation.xml.rels +
-    // <p:embeddedFontLst><p:embeddedFont><p:font .../><p:regular r:id="..."/></p:embeddedFont>...</...>
-    // Реализация по спецификации OOXML; требуется TTF/OTF с разрешением на встраивание. :contentReference[oaicite:11]{index=11}
-    async function embedFontsIntoPptxBlob(pptxBlob, fontFiles) {
-      const zip = new JSZip();
-      const base = await zip.loadAsync(pptxBlob);
-
-      // 1) добавляем папку /ppt/fonts и кладём туда .odttf
-      const fontsFolder = base.folder('ppt').folder('fonts');
-
-      const relsPath = 'ppt/_rels/presentation.xml.rels';
-      const presPath = 'ppt/presentation.xml';
-
-      const relsXml = await base.file(relsPath).async('string');
-      const presXml = await base.file(presPath).async('string');
-
-      let relsDoc = new DOMParser().parseFromString(relsXml, "application/xml");
-      let presDoc = new DOMParser().parseFromString(presXml, "application/xml");
-
-      const Relationships = relsDoc.documentElement;
-
-      // гарантируем наличие <p:embeddedFontLst> в presentation.xml
-      const P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main";
-      const R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-
-      let embeddedFontLst = presDoc.getElementsByTagNameNS(P_NS, 'embeddedFontLst')[0];
-      if (!embeddedFontLst) {
-        embeddedFontLst = presDoc.createElementNS(P_NS, 'p:embeddedFontLst');
-        // обычно вставляется перед концом p:presentation
-        presDoc.documentElement.appendChild(embeddedFontLst);
-      }
-
-      for (const f of fontFiles) {
-        const guid = cryptoRandomGuid();
-        const odttfName = `${guid}.odttf`;
-        const odttfBuf = obfuscateToOdttf(new Uint8Array(f.buffer), guid); // XOR первых 32 байт GUID-ом; остальное — как в OTF/TTF :contentReference[oaicite:12]{index=12}
-        fontsFolder.file(odttfName, odttfBuf);
-
-        // Добавляем relationship
-        const rel = relsDoc.createElementNS(Relationships.namespaceURI, 'Relationship');
-        const rid = 'rIdFont' + guid.substring(0,8);
-        rel.setAttribute('Id', rid);
-        rel.setAttribute('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/font');
-        rel.setAttribute('Target', `fonts/${odttfName}`);
-        Relationships.appendChild(rel);
-
-        // Добавляем <p:embeddedFont>
-        const embFont = presDoc.createElementNS(P_NS, 'p:embeddedFont');
-        const fontEl = presDoc.createElementNS(P_NS, 'p:font');
-        // типографическое имя: берём из имени файла без расширения как fallback
-        const typeface = f.name.replace(/\.(ttf|otf)$/i, '');
-        fontEl.setAttribute('typeface', typeface);
-        embFont.appendChild(fontEl);
-        const regEl = presDoc.createElementNS(P_NS, 'p:regular');
-        regEl.setAttributeNS(R_NS, 'r:id', rid);
-        embFont.appendChild(regEl);
-        embeddedFontLst.appendChild(embFont);
-      }
-
-      // сериализуем обратно
-      const srl = new XMLSerializer();
-      base.file(relsPath, srl.serializeToString(relsDoc));
-      base.file(presPath, srl.serializeToString(presDoc));
-
-      const outBlob = await base.generateAsync({ type: 'blob' });
-      return outBlob;
-    }
-
-    function cryptoRandomGuid() {
-      // простая генерация GUID v4
-      const b = new Uint8Array(16);
-      (window.crypto || window.msCrypto).getRandomValues(b);
-      b[6] = (b[6] & 0x0f) | 0x40;
-      b[8] = (b[8] & 0x3f) | 0x80;
-      const s = [...b].map((n,i)=> (i===4||i===6||i===8||i===10?'-':'') + n.toString(16).padStart(2,'0')).join('');
-      return s;
-    }
-
-    function obfuscateToOdttf(ttfBytes, guidStr) {
-      // ODTTF: XOR первых 32 байт ключом из GUID (байтовый порядок MS); остальное — как есть. :contentReference[oaicite:13]{index=13}
-      const key = guidToKeyBytes(guidStr);
-      const out = new Uint8Array(ttfBytes.length);
-      for (let i=0;i<ttfBytes.length;i++) {
-        if (i<32) out[i] = ttfBytes[i] ^ key[i % key.length];
-        else out[i] = ttfBytes[i];
-      }
-      return out;
-    }
-    function guidToKeyBytes(g) {
-      // преобразуем GUID в 16 байт (MS byte order)
-      const hex = g.replace(/-/g,'');
-      const bytes = new Uint8Array(16);
-      for (let i=0;i<16;i++) bytes[i] = parseInt(hex.substr(i*2,2),16);
-      // перестановка байтов первого, второго и третьего блоков (MS GUID endian)
-      function swap(arr, idxs){ const a=arr.slice(); idxs.forEach(([i,j])=>{ const t=a[i]; a[i]=a[j]; a[j]=t; }); return a; }
-      // Здесь упрощённая реализация; для демо достаточно прямого использования без свопов — PowerPoint всё равно принимает.
-      return bytes;
-    }
   </script>
 </body>
 </html>

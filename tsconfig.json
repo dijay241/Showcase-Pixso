@@ -3,13 +3,31 @@
         "target": "ES2019",
         "module": "ESNext",
         "strict": true,
-        "jsx": "react-jsx",
         "lib": [
             "ES2020",
             "DOM"
         ],
-        "types": [
-            "@figma/plugin-typings"
-        ]
-    }
+        "types": [],
+        "typeRoots": [
+            "./",
+            "./node_modules/@types"
+        ],
+        "skipLibCheck": true,
+        "esModuleInterop": true,
+        "allowSyntheticDefaultImports": true,
+        "forceConsistentCasingInFileNames": true,
+        "moduleResolution": "node",
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "noEmit": true
+    },
+    "include": [
+        "code.ts",
+        "pixso-types.d.ts",
+        "plugin-utils.ts"
+    ],
+    "exclude": [
+        "ui.ts",
+        "node_modules"
+    ]
 }
