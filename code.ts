@@ -46,6 +46,7 @@ declare const pixso: any;
     boxWIn: number;
     boxHIn: number;
     textwIn?: number;
+    transparency?: number;
   };
   
   type ExportSvgItem = ExportItemBase & {
@@ -262,17 +263,17 @@ declare const pixso: any;
             const yIn = pxToIn(absY - frameAbsY);
 
             // Получаем поворот согласно Pixso API
-            let rotate = 0;
-            if ('rotation' in node && typeof (node as any).rotation === 'number') {
-              // Используем свойство rotation (диапазон [-180, 180])
-              rotate = (node as any).rotation;
-            } else if (node.relativeTransform) {
-              // Вычисляем из relativeTransform согласно документации
-              rotate = rotationFromTransform(node.relativeTransform);
-            } else if (node.absoluteTransform) {
-              // Fallback: вычисляем из absoluteTransform
-              rotate = rotationFromTransform(node.absoluteTransform);
-            }
+            let rotate = Math.atan2(-node.relativeTransform[1][0], node.relativeTransform[0][0]) * 180 / Math.PI;
+            // if ('rotation' in node && typeof (node as any).rotation === 'number') {
+            //   // Используем свойство rotation (диапазон [-180, 180])
+            //   rotate = (node as any).rotation;
+            // } else if (node.relativeTransform) {
+            //   // Вычисляем из relativeTransform согласно документации
+            //   rotate = rotationFromTransform(node.relativeTransform);
+            // } else if (node.absoluteTransform) {
+            //   // Fallback: вычисляем из absoluteTransform
+            //   rotate = rotationFromTransform(node.absoluteTransform);
+            // }
         
             // Нормализуем угол поворота
             while (rotate > 180) rotate -= 360;
@@ -289,8 +290,130 @@ declare const pixso: any;
               }
             }
 
-            // Обработка текстовых элементов
-            if (node.type === "TEXT") {
+            //console.log("node", node.type);
+            if(node.type === "GROUP") {
+              console.log("groupHasNoTextDeep", groupHasNoTextDeep(node));
+              console.log("Rotation", node.rotation);
+            }
+
+            else if (node.type === "RECTANGLE" || node.type === "ELLIPSE" || node.type === "POLYGON" || node.type === "STAR" || node.type === "VECTOR" || node.type === "FRAME") {
+
+              if(node.id === masterFrameId) {
+                return;
+              }
+
+              const isLine = node.width < 1 || node.height < 1;
+              
+              if (isLine) {
+                lineProcessing(node, rotate, zCounter, items);
+                return; // Выходим из функции для линий
+              }
+
+              // Проверяем объект на нужный тип и размер
+              if (!hasRenderableSize(node)) return;
+              
+              const parentNode = node.parent;
+              let nodeToExport = node;
+              let clonedNode = null;
+              let absolutePosition = null;
+              
+              absolutePosition = calculateAbsolutePosition(node, masterFrameId);
+
+              // Для фреймов с заливкой или рамкой создаем прямоугольник с теми же параметрами
+              if (node.type === "FRAME") {
+                
+                // Создаем прямоугольник с параметрами фрейма
+                const rectangleNode = pixso.createRectangle();
+
+                rectangleNode.resize(node.width, node.height);
+                
+                rectangleNode.fills = [];
+                
+                // Копируем заливку
+                if (node.fills && node.fills.length > 0) {
+                  rectangleNode.fills = node.fills;
+                }
+                
+                // Копируем рамку
+                if (node.strokes && node.strokes.length > 0) {
+                  rectangleNode.strokes = node.strokes;
+                  rectangleNode.strokeWeight = node.strokeWeight || 0;
+                  rectangleNode.strokeAlign = node.strokeAlign || "CENTER";
+                  rectangleNode.strokeJoin = node.strokeJoin || "MITER";
+                  rectangleNode.strokeCap = node.strokeCap || "NONE";
+                  rectangleNode.dashPattern = node.dashPattern || [];
+                  rectangleNode.strokeMiterLimit = node.strokeMiterLimit || 4;
+                }
+                
+                // Копируем border radius
+                if (node.cornerRadius !== undefined) {
+                  rectangleNode.cornerRadius = node.cornerRadius;
+                }
+                if (node.topLeftRadius !== undefined) {
+                  rectangleNode.topLeftRadius = node.topLeftRadius;
+                }
+                if (node.topRightRadius !== undefined) {
+                  rectangleNode.topRightRadius = node.topRightRadius;
+                }
+                if (node.bottomLeftRadius !== undefined) {
+                  rectangleNode.bottomLeftRadius = node.bottomLeftRadius;
+                }
+                if (node.bottomRightRadius !== undefined) {
+                  rectangleNode.bottomRightRadius = node.bottomRightRadius;
+                }
+                
+                // Копируем прозрачность
+                rectangleNode.opacity = node.opacity || 1;
+                
+                // Присваиваем созданный прямоугольник clonedNode
+                clonedNode = rectangleNode;
+
+              } else {
+                // Создаем копию узла для flatten, чтобы не изменять оригинал
+                clonedNode = (node as any).clone();
+              }
+
+              // clonedNode = {
+              //   ...clonedNode,
+              //   x: absolutePosition.x,
+              //   y: absolutePosition.y,
+              //   rotation: rotate
+              // };
+
+              clonedNode.x = absolutePosition.x;
+              clonedNode.y = absolutePosition.y;
+              clonedNode.rotation = rotate;
+
+              console.log('clonedNode.x', clonedNode.x, 'clonedNode.y', clonedNode.y);
+              console.log('Absolute X', absolutePosition.x, 'Absolute Y', absolutePosition.y);
+              console.log('rotation', clonedNode.rotation );
+
+              // Применяем flatten к повернутому объекту
+              nodeToExport = pixso.flatten([clonedNode], scratch);
+
+              const data = await safeExportNode(nodeToExport, exportSettings);
+              
+              if (data) {
+                const svgBase64 = "data:image/svg+xml;base64," + pixso.base64Encode(data);
+                const svgItem: ExportSvgItem = {
+                  id: node.id,
+                  type: "SVG",
+                  xIn: pxToIn(nodeToExport.x), 
+                  yIn: pxToIn(nodeToExport.y), 
+                  wIn: pxToIn(nodeToExport.width), 
+                  hIn: pxToIn(nodeToExport.height),
+                  svgBase64,
+                  name: node.name,
+                  zIndex: zCounter++
+                };
+
+                items.push(svgItem);
+
+              }
+              
+            }
+            
+            else if (node.type === "TEXT") {
 
               const textNode = node;
               const runs: ExportTextRun[] = [];
@@ -308,6 +431,8 @@ declare const pixso: any;
                 letterSpacing: textNode.getRangeLetterSpacing ? textNode.getRangeLetterSpacing(0, textLength) : (textNode as any).letterSpacing,
                 lineHeight: textNode.getRangeLineHeight ? textNode.getRangeLineHeight(0, textLength) : (textNode as any).lineHeight
               }];
+
+              let transparency = 0;
           
               // В Pixso API нет getRangeListOptions, пропускаем обработку списков
               for (const seg of segments) {
@@ -316,7 +441,11 @@ declare const pixso: any;
                 if (!str.length) continue;
 
                 const fill = firstSolidPaint(seg.fills);
-                const colorHex = fill ? rgbToHex(fill.color, fill.opacity) : "000000";
+                const colorHex = fill ? rgbToHex(fill.color, (fill.opacity || 1)) : "000000";
+
+                if(fill.opacity || 1) {
+                  transparency = 100 - (fill.opacity || 1) * 100;
+                }
             
                 // Обработка textDecoration согласно Pixso API
                 const underline = seg.textDecoration === "UNDERLINE";
@@ -361,7 +490,6 @@ declare const pixso: any;
                 let lineSpacing: number | undefined;
                 if (seg.lineHeight && typeof seg.lineHeight === 'object') {
                   const lineHeight = seg.lineHeight as any;
-                  console.log("lineHeight", lineHeight);
                   if (lineHeight.unit === "PIXELS") {
                     lineSpacing = pxToPt(lineHeight.value);
                   } else if (lineHeight.unit === "PERCENT") {
@@ -409,7 +537,7 @@ declare const pixso: any;
               if (runs.length === 0) {
                 // Если нет runs, создаем один с базовыми настройками из самого текстового узла
                 const fallbackFill = firstSolidPaint((textNode as any).fills);
-                const fallbackColor = fallbackFill ? rgbToHex(fallbackFill.color, fallbackFill.opacity) : "000000";
+                const fallbackColor = fallbackFill ? rgbToHex(fallbackFill.color, (fallbackFill.opacity || 1)) : "000000";
                 
                 // Используем методы Pixso API для получения свойств
                 const fallbackFontSize = textNode.getRangeFontSize ? textNode.getRangeFontSize(0, textNode.characters.length) : 12;
@@ -481,56 +609,13 @@ declare const pixso: any;
                 runs,
                 align, valign,
                 name: textNode.name,
+                transparency,
                 zIndex: zCounter++
               };
 
               items.push(textItem);
 
-            }
-
-            else if (node.type === "RECTANGLE" || node.type === "ELLIPSE" || node.type === "POLYGON" || node.type === "STAR") {
-
-              // Проверяем объект на нужный тип и размер
-              if (!hasRenderableSize(node)) return;
-              
-              const parentNode = node.parent;
-              let nodeToExport = node;
-              
-              // Создаем копию узла для flatten, чтобы не изменять оригинал
-              const clonedNode = (node as any).clone();
-              clonedNode.x = node.x;
-              clonedNode.y = node.y;
-
-              if(masterFrameId !== parentNode.id) {
-                const absolutePosition = calculateAbsolutePosition(node, clonedNode, masterFrameId);
-                clonedNode.x = absolutePosition.x;
-                clonedNode.y = absolutePosition.y;
-              }
-
-              // Применяем flatten к повернутому объекту
-              nodeToExport = pixso.flatten([clonedNode], scratch);
-
-              const data = await safeExportNode(nodeToExport, exportSettings);
-              
-              if (data) {
-                const svgBase64 = "data:image/svg+xml;base64," + pixso.base64Encode(data);
-                const svgItem: ExportSvgItem = {
-                  id: node.id,
-                  type: "SVG",
-                  xIn: pxToIn(nodeToExport.x), 
-                  yIn: pxToIn(nodeToExport.y), 
-                  wIn: pxToIn(nodeToExport.width), 
-                  hIn: pxToIn(nodeToExport.height),
-                  svgBase64,
-                  name: node.name,
-                  zIndex: zCounter++
-                };
-
-                items.push(svgItem);
-
-              }
-              
-            }
+            } 
 
             else if (node.type === "LINE") {
               lineProcessing(node, rotate, zCounter, items);
@@ -538,12 +623,7 @@ declare const pixso: any;
 
             else if (isVectorNode(node)) {
               // Специальная обработка для линий (в Pixso линии имеют тип VECTOR)
-              const isLine = node.width < 1 || node.height < 1;
-              
-              if (isLine) {
-                lineProcessing(node, rotate, zCounter, items);
-                return; // Выходим из функции для линий
-              }
+             
               
               if (!hasRenderableSize(node)) return;
               
@@ -658,6 +738,7 @@ declare const pixso: any;
           }
         }
       };
+
       await walk(frame);
   
           exportFrames.push({
@@ -667,7 +748,7 @@ declare const pixso: any;
             heightPx: frame.height,
             slideWIn, slideHIn,
             bgColorHex: bgHex || undefined,
-            items
+            items: sortAndReindex(items)
           });
           
           processedFrames++;
@@ -838,9 +919,9 @@ declare const pixso: any;
   }
 
   // Функция для суммирования координат по всем parent нодам до masterFrameId
-  function calculateAbsolutePosition(node: any, flattenedNode: any, masterFrameId: string): any {
-    let totalX = flattenedNode.x;
-    let totalY = flattenedNode.y;
+  function calculateAbsolutePosition(node: any, masterFrameId: string): any {
+    let totalX = node.x;
+    let totalY = node.y;
     let currentParent = node.parent;
     // Проходим по всем parent нодам до masterFrameId
     while (currentParent && currentParent.id !== masterFrameId) {
@@ -855,8 +936,7 @@ declare const pixso: any;
   
   function isVectorNode(n: any): boolean {
     return (
-      (n.type === "VECTOR" ||
-        n.type === "BOOLEAN_OPERATION") &&
+      (n.type === "BOOLEAN_OPERATION") &&
       "exportAsync" in n
     );
   }
@@ -975,6 +1055,7 @@ declare const pixso: any;
     // Контейнеры не рендерим как отдельные картинки
     if (n.type === "GROUP" || n.type === "FRAME" || n.type === "COMPONENT" || n.type === "INSTANCE") {
       const g = n as any;
+      if (g.fills.length !== 0 || g.strokes.length !== 0) return true;
       if (!('children' in g) || !g.children || g.children.length === 0) return false;
       return false;
     }
@@ -1101,4 +1182,34 @@ declare const pixso: any;
       console.error("Node data:", node);
       
     }
+  }
+
+  function sortAndReindex(arr: any[]): any[] {
+    // Разделяем на "не TEXT" и "TEXT"
+    const nonText = arr.filter(item => item.type !== "TEXT");
+    const text = arr.filter(item => item.type === "TEXT");
+
+    // Объединяем обратно: сначала все кроме TEXT, потом TEXT
+    const reordered = [...nonText, ...text];
+
+    // Переиндексация zIndex
+    reordered.forEach((item, index) => {
+      item.zIndex = index;
+    });
+
+    return reordered;
+  }
+
+  function groupHasNoTextDeep(node: any): boolean {
+    for (const child of node.children) {
+      if (child.type === "TEXT") {
+        return false; // нашли текст
+      }
+      if ("children" in child) {
+        if (!groupHasNoTextDeep(child)) {
+          return false;
+        }
+      }
+    }
+    return true; // текста нигде нет
   }
