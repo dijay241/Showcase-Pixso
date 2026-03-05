@@ -328,15 +328,17 @@ declare const pixso: any;
                 rectangleNode.resize(node.width, node.height);
                 
                 rectangleNode.fills = [];
-                
-                // Копируем заливку
-                if (node.fills && node.fills.length > 0) {
-                  rectangleNode.fills = node.fills;
+
+                // Копируем заливку (из стиля или явную — без привязки к стилю)
+                const frameFills = getResolvedFills(node);
+                if (frameFills && frameFills.length > 0) {
+                  rectangleNode.fills = frameFills as any;
                 }
-                
-                // Копируем рамку
-                if (node.strokes && node.strokes.length > 0) {
-                  rectangleNode.strokes = node.strokes;
+
+                // Копируем рамку (из стиля или явную)
+                const frameStrokes = getResolvedStrokes(node);
+                if (frameStrokes && frameStrokes.length > 0) {
+                  rectangleNode.strokes = frameStrokes as any;
                   rectangleNode.strokeWeight = node.strokeWeight || 0;
                   rectangleNode.strokeAlign = node.strokeAlign || "CENTER";
                   rectangleNode.strokeJoin = node.strokeJoin || "MITER";
@@ -371,6 +373,23 @@ declare const pixso: any;
               } else {
                 // Создаем копию узла для flatten, чтобы не изменять оригинал
                 clonedNode = (node as any).clone();
+                // Сбрасываем привязку к стилям и задаём заливку/обводку явным кодом (как если бы цвет был задан кодом)
+                if (typeof clonedNode.fillStyleId !== "undefined") clonedNode.fillStyleId = "";
+                const resolvedFills = getResolvedFills(node);
+                if (resolvedFills && resolvedFills.length > 0) {
+                  clonedNode.fills = resolvedFills as any;
+                }
+                if (typeof clonedNode.strokeStyleId !== "undefined") clonedNode.strokeStyleId = "";
+                const resolvedStrokes = getResolvedStrokes(node);
+                if (resolvedStrokes && resolvedStrokes.length > 0) {
+                  clonedNode.strokes = resolvedStrokes as any;
+                  clonedNode.strokeWeight = node.strokeWeight ?? 0;
+                  clonedNode.strokeAlign = node.strokeAlign ?? "CENTER";
+                  clonedNode.strokeJoin = node.strokeJoin ?? "MITER";
+                  clonedNode.strokeCap = node.strokeCap ?? "NONE";
+                  clonedNode.dashPattern = node.dashPattern ?? [];
+                  clonedNode.strokeMiterLimit = node.strokeMiterLimit ?? 4;
+                }
               }
 
               // clonedNode = {
@@ -384,9 +403,11 @@ declare const pixso: any;
               clonedNode.y = absolutePosition.y;
               clonedNode.rotation = rotate;
 
-              console.log('clonedNode.x', clonedNode.x, 'clonedNode.y', clonedNode.y);
-              console.log('Absolute X', absolutePosition.x, 'Absolute Y', absolutePosition.y);
-              console.log('rotation', clonedNode.rotation );
+              console.log("node.name", node.name, "clonedNode.fills", clonedNode.fills);
+
+              // console.log('clonedNode.x', clonedNode.x, 'clonedNode.y', clonedNode.y);
+              // console.log('Absolute X', absolutePosition.x, 'Absolute Y', absolutePosition.y);
+              // console.log('rotation', clonedNode.rotation );
 
               // Применяем flatten к повернутому объекту
               nodeToExport = pixso.flatten([clonedNode], scratch);
@@ -888,6 +909,32 @@ declare const pixso: any;
     if (!Array.isArray(paints)) return null;
     const p = paints.find((p: any) => p.type === "SOLID") as any;
     return p || null;
+  }
+
+  /** Возвращает массив заливок для узла: из стиля по fillStyleId или node.fills. */
+  function getResolvedFills(node: any): readonly any[] | null {
+    const styleId = node.fillStyleId;
+    if (styleId && typeof (pixso.getStyleById) === "function") {
+      const style = pixso.getStyleById(styleId);
+      if (style && (style as any).type === "PAINT" && Array.isArray((style as any).paints) && (style as any).paints.length > 0) {
+        return (style as any).paints;
+      }
+    }
+    if (node.fills && Array.isArray(node.fills) && node.fills.length > 0) return node.fills;
+    return null;
+  }
+
+  /** Возвращает массив обводок для узла: из стиля по strokeStyleId или node.strokes. */
+  function getResolvedStrokes(node: any): readonly any[] | null {
+    const styleId = node.strokeStyleId;
+    if (styleId && typeof (pixso.getStyleById) === "function") {
+      const style = pixso.getStyleById(styleId);
+      if (style && (style as any).type === "PAINT" && Array.isArray((style as any).paints) && (style as any).paints.length > 0) {
+        return (style as any).paints;
+      }
+    }
+    if (node.strokes && Array.isArray(node.strokes) && node.strokes.length > 0) return node.strokes;
+    return null;
   }
 
   function frameBackgroundHex(n: any) {

@@ -4,8 +4,10 @@
   "description": "```sh $ npm init -y $ npm i -D esbuild typescript @figma/plugin-typings $ npx esbuild code.ts --bundle --outfile=code.js",
   "main": "index.js",
   "scripts": {
-    "build": "npm run build:ts",
+    "build": "npm run build:ts && npm run build:js",
     "build:ts": "npx tsc",
+    "build:js": "npx esbuild code.ts --bundle --outfile=code.js",
+    "watch": "npx esbuild code.ts --bundle --outfile=code.js --watch",
     "build:clean": "rm -f code.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -15,6 +17,7 @@
   "type": "commonjs",
   "devDependencies": {
     "@figma/plugin-typings": "^1.117.0",
+    "esbuild": "^0.24.0",
     "typescript": "^5.9.2"
   },
   "repository": {
